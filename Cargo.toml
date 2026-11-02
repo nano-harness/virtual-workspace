@@ -1,0 +1,39 @@
+[package]
+license = "MIT"
+name = "vwsd"
+version = "0.1.0"
+edition = "2021"
+description = "Prepare real Git worktree directories for multi-repository workspaces"
+repository = "https://github.com/nano-harness/virtual-workspace"
+
+[[bin]]
+name = "vwsd"
+path = "src/main.rs"
+
+[lib]
+name = "vwsd"
+path = "src/lib.rs"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+clap_complete = "4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+dirs = "5"
+fs2 = "0.4"
+inquire = "0.7"
+dialoguer = "0.11"
+uuid = { version = "1", features = ["v4"] }
+
+[dev-dependencies]
+tempfile = "3"
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "bench_git_source"
+harness = false
+
+[profile.release]
+lto = "thin"
+codegen-units = 1

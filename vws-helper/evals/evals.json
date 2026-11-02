@@ -1,0 +1,65 @@
+{
+  "skill_name": "vws-helper",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "我应该如何使用 vwsd 来挂载我的项目？",
+      "expected_output": "应该触发 vws-helper 技能，并提供关于 `vwsd mount` 命令的说明。",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "如何用 python 写一个 web 服务器？",
+      "expected_output": "不应该触发 vws-helper 技能。",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "帮我把 ~/code/frontend 和 ~/code/backend 合并到一个虚拟工作区里并行开发",
+      "expected_output": "应该触发 vws-helper 技能，并使用非交互方式（vwsd init --name ... --source ... --source ...）创建纯本地多源工作区后挂载。",
+      "files": []
+    },
+    {
+      "id": 4,
+      "prompt": "Create a virtual workspace for git@github.com:myorg/myrepo.git and mount it",
+      "expected_output": "应该触发 vws-helper 技能，生成包含 remote_git 源的 JSON 配置（或 vwsd init --source <git URL>），然后执行 vwsd mount --config。",
+      "files": []
+    },
+    {
+      "id": 5,
+      "prompt": "我的虚拟工作区打不开了，帮我看看状态和日志",
+      "expected_output": "应该触发 vws-helper 技能。注意 vwsd 没有后台 daemon，不存在 logs 命令；应使用 `vwsd list --json` 查看状态、`vwsd doctor --json` 诊断问题，必要时建议 `vwsd doctor --fix` / `vwsd repair --json` 修复。不要编造 `vwsd logs` 之类不存在的命令。",
+      "files": []
+    },
+    {
+      "id": 6,
+      "prompt": "帮我写一个 Rust 的链表实现并通过借用检查",
+      "expected_output": "不应该触发 vws-helper 技能。",
+      "files": []
+    },
+    {
+      "id": 7,
+      "prompt": "把我工作区里的本地改动推送到远程，再把远程最新代码拉下来",
+      "expected_output": "应该触发 vws-helper 技能。推送先用 `vwsd push --name <名称> --json` 预览，确认后用 `--yes` 实际推送；拉取用 `vwsd sync --name <名称> --json`。两条命令都必须带 --name 或 --config，不能依赖交互式选择。",
+      "files": []
+    },
+    {
+      "id": 8,
+      "prompt": "这个工作区我不要了，帮我彻底删掉",
+      "expected_output": "应该触发 vws-helper 技能。彻底删除用 `vwsd destroy --name <名称> --force`，但它不可逆，执行前必须先向用户确认；只删远程 worktree 则用 `vwsd umount --name <名称> --force`（可逆）。本地源目录两种操作都不会删除。",
+      "files": []
+    },
+    {
+      "id": 9,
+      "prompt": "我有个老的 vws 配置文件，里面有 upperdir、nfs_port 这些字段，还能直接用吗",
+      "expected_output": "应该触发 vws-helper 技能，并说明这些 NFS 时代的字段已被废弃但会被静默忽略，直接 `vwsd mount --config <路径>` 即可，首次挂载会自动补全 id 并回写精简配置。",
+      "files": []
+    },
+    {
+      "id": 10,
+      "prompt": "脚本里调用 vwsd mount，我想用程序解析每个源的挂载结果",
+      "expected_output": "应该触发 vws-helper 技能，使用 `vwsd mount --config <路径> --json` 获取结构化的每源 ok/warn 结果数组。",
+      "files": []
+    }
+  ]
+}
