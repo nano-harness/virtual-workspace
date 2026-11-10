@@ -1,4 +1,4 @@
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 use clap::{CommandFactory, Parser, Subcommand};
 use clap_complete::{generate, Shell};
 use std::path::{Path, PathBuf};
@@ -251,12 +251,12 @@ fn check_git_sync_before_teardown(ws: &Workspace, force: bool, kind: TeardownKin
         if !path.exists() {
             continue;
         }
-        let Some(branch) = git_ops::current_branch(&path)
-            .ok()
-            .filter(|branch| !branch.is_empty())
-        else {
-            continue;
-        };
+        let branch = git_ops::current_branch(&path).with_context(|| {
+            format!(
+                "cannot determine the current branch of remote source '{}' at {}; refusing to {} its worktree",
+                src.mount_name(), path.display(), verb
+            )
+        })?;
         if let Err(err) = git_ops::fetch_all(&path) {
             eprintln!(
                 "warning: could not fetch remote updates for '{}': {}",
@@ -264,9 +264,16 @@ fn check_git_sync_before_teardown(ws: &Workspace, force: bool, kind: TeardownKin
                 err
             );
         }
-        let Ok(status) = git_ops::check_branch_sync(&path, &branch) else {
-            continue;
-        };
+        // A failed check is not evidence that the worktree is safe to delete.
+        // Even --force only skips confirmations, not these safety checks.
+        // An empty branch means detached HEAD; check_branch_sync still checks
+        // its changes and commits against all origin refs in that case.
+        let status = git_ops::check_branch_sync(&path, &branch).with_context(|| {
+            format!(
+                "cannot determine the sync status of remote source '{}' at {}; refusing to {} its worktree",
+                src.mount_name(), path.display(), verb
+            )
+        })?;
         if status.uncommitted_changes > 0 {
             let (warning, prompt, default, cancel) = if destructive {
                 (

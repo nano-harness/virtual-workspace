@@ -79,6 +79,8 @@ Configurations are stored in `~/.vws/workspaces/<name>.json`. A mixed local/remo
 - `vwsd vscode`: generate a `.code-workspace` file with absolute folder paths.
 - `vwsd completion`: generate shell completion scripts.
 
+Before removing remote worktrees, `umount` / `stop` and `destroy` check for uncommitted changes and unpushed commits, including detached HEADs. If Git cannot determine a worktree's branch or sync status, the command stops before deleting any worktrees, caches, mountpoint, or config. `--force` skips confirmation prompts but does not bypass these failed safety checks; repair the reported Git error and retry.
+
 ## Notes on local sources
 
 Local sources are not copied into the mountpoint and are never symlinked there. The authoritative path remains the original `sources[].path` directory.

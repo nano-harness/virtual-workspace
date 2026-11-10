@@ -80,6 +80,8 @@ vwsd status
 - `vwsd vscode`：生成包含绝对路径的 `.code-workspace` 文件。
 - `vwsd completion`：生成 shell 补全脚本。
 
+删除远程 worktree 前，`umount` / `stop` 和 `destroy` 会检查未提交的改动及未推送的提交，包括 detached HEAD 状态。如果 Git 无法确定 worktree 的分支或同步状态，命令会在删除任何 worktree、缓存、mountpoint 或配置之前停止。`--force` 仅跳过确认提示，不会绕过失败的安全检查；请修复报错后重试。
+
 ## 关于本地源
 
 本地源不会被复制到 mountpoint，也不会在那里创建 symlink。真正的权威路径始终是配置里的 `sources[].path`。
