@@ -285,7 +285,7 @@ fn check_git_sync_before_teardown(ws: &Workspace, force: bool, kind: TeardownKin
                         src.mount_name(), status.uncommitted_changes
                     ),
                     "Continue removing the worktree? You can recreate it later, but uncommitted work in this worktree will be lost.",
-                    true,
+                    false,
                     "Cancelled.",
                 )
             };
@@ -311,7 +311,7 @@ fn check_git_sync_before_teardown(ws: &Workspace, force: bool, kind: TeardownKin
                         src.mount_name(), status.unpushed_commits
                     ),
                     "Continue removing the worktree? Recreating later will not restore these commits automatically.",
-                    true,
+                    false,
                     "Cancelled.",
                 )
             };
@@ -347,7 +347,7 @@ fn unmount_workspace(config_path: &Path, force: bool) -> Result<()> {
                 "Remove remote worktrees for workspace '{}' ?",
                 ws.name
             ))
-            .default(true)
+            .default(false)
             .interact()?;
         if !confirmed {
             println!("Cancelled.");

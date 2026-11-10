@@ -17,8 +17,7 @@ pub fn source_runtime_path(workspace: &Workspace, source: &Source) -> PathBuf {
 }
 
 pub fn cleanup_mountpoint(mountpoint: &Path) -> Result<()> {
-    let path_str = mountpoint.to_string_lossy();
-    if path_str.is_empty() {
+    if mountpoint.as_os_str().is_empty() {
         bail!("refusing to delete empty mountpoint path");
     }
     let abs = if mountpoint.is_absolute() {
@@ -26,50 +25,145 @@ pub fn cleanup_mountpoint(mountpoint: &Path) -> Result<()> {
     } else {
         std::env::current_dir()?.join(mountpoint)
     };
-    if abs == Path::new("/") {
+    let metadata = match fs::symlink_metadata(&abs) {
+        Ok(metadata) => metadata,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(err) => return Err(err.into()),
+    };
+    if metadata.file_type().is_symlink() || !metadata.is_dir() {
+        bail!(
+            "refusing to remove non-directory mountpoint {}",
+            abs.display()
+        );
+    }
+    let resolved = fs::canonicalize(&abs)?;
+    if resolved == Path::new("/") {
         bail!("refusing to delete filesystem root /");
     }
     if let Some(home) = dirs::home_dir() {
-        if abs == home {
+        if resolved == fs::canonicalize(&home).unwrap_or_else(|_| home.clone()) {
             bail!("refusing to delete home directory {}", home.display());
         }
     }
-    if mountpoint.exists() {
-        fs::remove_dir_all(mountpoint)?;
+    // The mountpoint may also contain editor files or unrelated user data.
+    // Only remove an empty directory; never recursively delete its contents.
+    match fs::remove_dir(&abs) {
+        Ok(()) => Ok(()),
+        Err(err) if err.kind() == std::io::ErrorKind::DirectoryNotEmpty => {
+            eprintln!(
+                "warning: mountpoint {} is not empty; preserving remaining files",
+                abs.display()
+            );
+            Ok(())
+        }
+        Err(err) => Err(err.into()),
     }
-    Ok(())
+}
+
+/// Check both sides of Git's worktree registration, not just the presence of
+/// a .git file (which could belong to another repository or be forged).
+fn is_managed_worktree(path: &Path, bare: &Path) -> bool {
+    let real_dir = |path: &Path| {
+        fs::symlink_metadata(path)
+            .map(|m| m.is_dir() && !m.file_type().is_symlink())
+            .unwrap_or(false)
+    };
+    let real_file = |path: &Path| {
+        fs::symlink_metadata(path)
+            .map(|m| m.is_file() && !m.file_type().is_symlink())
+            .unwrap_or(false)
+    };
+    let git_file = path.join(".git");
+    if !real_dir(path) || !real_dir(bare) || !real_file(&git_file) {
+        return false;
+    }
+    let Ok(contents) = fs::read_to_string(&git_file) else {
+        return false;
+    };
+    let Some(git_dir) = contents.trim().strip_prefix("gitdir: ") else {
+        return false;
+    };
+    let git_dir = path.join(git_dir);
+    let registrations = bare.join("worktrees");
+    if !real_dir(&git_dir) || !real_dir(&registrations) {
+        return false;
+    }
+    let (Ok(actual), Ok(expected), Ok(bare), Ok(git_file)) = (
+        fs::canonicalize(&git_dir),
+        fs::canonicalize(&registrations),
+        fs::canonicalize(bare),
+        fs::canonicalize(&git_file),
+    ) else {
+        return false;
+    };
+    if actual.parent() != Some(expected.as_path()) {
+        return false;
+    }
+    let points_to = |file: &str, target: &Path| {
+        let file = actual.join(file);
+        real_file(&file)
+            && fs::read_to_string(file)
+                .ok()
+                .and_then(|s| fs::canonicalize(actual.join(s.trim())).ok())
+                .is_some_and(|resolved| resolved == target)
+    };
+    points_to("gitdir", &git_file) && points_to("commondir", &bare)
 }
 
 pub fn cleanup_worktrees(workspace: &Workspace) -> Result<usize> {
-    let mut removed = 0usize;
+    workspace.validate_mount_names()?;
+    // Validate every target before removing the first worktree. A failed Git
+    // removal must leave the directory intact, never fall back to recursive rm.
+    let mut targets = Vec::new();
     for src in workspace.sources.iter().filter(|src| src.is_remote_git()) {
         let path = remote_target_path(workspace, src);
-        if !path.exists() {
-            continue;
+        match fs::symlink_metadata(&path) {
+            Ok(_) => (),
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(err) => return Err(err.into()),
         }
-        if let Some(rg) = &src.remote_git {
-            if let Some(bare) =
-                crate::url_parser::default_bare_path_isolated(&rg.url, &workspace.name, None)
+        let mut component_path = PathBuf::from(&workspace.mountpoint);
+        for component in Path::new(&src.mount_name()).components() {
+            component_path.push(component);
+            if fs::symlink_metadata(&component_path)?
+                .file_type()
+                .is_symlink()
             {
-                if bare.exists() {
-                    let _ = git_ops::worktree_remove(&bare, &path);
-                }
-            }
-        }
-        if path.exists() {
-            // Only force-delete directories that are actually git worktrees
-            // (`.git` is a file, not a directory). A regular clone or a plain
-            // directory with user data must never be removed here.
-            if path.join(".git").is_file() {
-                fs::remove_dir_all(&path)?;
-            } else {
-                eprintln!(
-                    "warning: {} exists but is not a git worktree created by vwsd; leaving it in place",
-                    path.display()
+                bail!(
+                    "refusing to remove worktree through symlink {}",
+                    component_path.display()
                 );
-                continue;
             }
         }
+        let resolved = fs::canonicalize(&path)?;
+        for local in workspace.sources.iter().filter(|s| !s.is_remote_git()) {
+            let local_path = Path::new(&local.path);
+            // Fail closed if a configured local source cannot be resolved.
+            let local_path = fs::canonicalize(local_path)?;
+            if local_path.starts_with(&resolved) {
+                bail!(
+                    "refusing to remove worktree {} containing local source {}",
+                    path.display(),
+                    local_path.display()
+                );
+            }
+        }
+        let remote = src.remote_git.as_ref().expect("filtered remote source");
+        let bare =
+            crate::url_parser::default_bare_path_isolated(&remote.url, &workspace.name, None)
+                .ok_or_else(|| anyhow::anyhow!("cannot determine managed bare repository"))?;
+        if !is_managed_worktree(&path, &bare) {
+            bail!(
+                "refusing to remove {}, which is not a verified vwsd worktree of {}",
+                path.display(),
+                bare.display()
+            );
+        }
+        targets.push((path, bare));
+    }
+    let mut removed = 0;
+    for (path, bare) in targets {
+        git_ops::worktree_remove(&bare, &path)?;
         removed += 1;
     }
     Ok(removed)
